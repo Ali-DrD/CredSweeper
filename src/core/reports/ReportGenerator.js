@@ -41,7 +41,7 @@ export class ReportGenerator {
   }
 
   createHTMLReport(results) {
-    const { target, aliases, credentials, exposures, repositories, metadata } = results;
+    const { target, profile, metadata } = results;
     
     return `
 <!DOCTYPE html>
@@ -153,8 +153,8 @@ export class ReportGenerator {
     <div class="container">
         <div class="header">
             <h1>🕵️‍♂️ CredSweeper Report</h1>
-            <p>Personal OSINT & Credential Exposure Analysis</p>
-            <div class="risk-badge risk-${metadata.riskLevel.toLowerCase()}">${metadata.riskLevel} RISK</div>
+            <p>LinkedIn Profile Data Extraction</p>
+            <div class="risk-badge ${metadata.extractionSuccess ? 'risk-low' : 'risk-medium'}">${metadata.extractionSuccess ? 'SUCCESS' : 'PARTIAL'}</div>
         </div>
 
         <div class="section">
@@ -185,87 +185,66 @@ export class ReportGenerator {
             <h2>📊 Exposure Summary</h2>
             <div class="stats">
                 <div class="stat-card">
-                    <div class="stat-number">${metadata.totalFindings}</div>
-                    <div class="stat-label">Total Credentials Found</div>
+                    <div class="stat-number">${metadata.dataPoints}</div>
+                    <div class="stat-label">Data Points Extracted</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number">${aliases.length}</div>
-                    <div class="stat-label">Generated Aliases</div>
+                    <div class="stat-number">${profile.experience ? profile.experience.length : 0}</div>
+                    <div class="stat-label">Work Experiences</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number">${repositories.length}</div>
-                    <div class="stat-label">GitHub Repositories</div>
+                    <div class="stat-number">${profile.education ? profile.education.length : 0}</div>
+                    <div class="stat-label">Education Entries</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number">${exposures.length}</div>
-                    <div class="stat-label">Public Exposures</div>
+                    <div class="stat-number">${profile.skills ? profile.skills.length : 0}</div>
+                    <div class="stat-label">Skills Listed</div>
                 </div>
             </div>
+            ${profile.about ? `<p><strong>About:</strong> ${profile.about}</p>` : ''}
+            ${profile.email ? `<p><strong>Email:</strong> ${profile.email}</p>` : ''}
         </div>
 
+        ${profile.experience && profile.experience.length > 0 ? `
         <div class="section">
-            <h2>🔄 Generated Aliases</h2>
+            <h2>💼 Work Experience</h2>
+            ${profile.experience.map(exp => `
+                <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 10px 0;">
+                    <h3>${exp.title}</h3>
+                    <p><strong>Company:</strong> ${exp.company}</p>
+                </div>
+            `).join('')}
+        </div>
+        ` : ''}
+
+        ${profile.education && profile.education.length > 0 ? `
+        <div class="section">
+            <h2>🎓 Education</h2>
+            ${profile.education.map(edu => `
+                <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 10px 0;">
+                    <h3>${edu.school}</h3>
+                    <p><strong>Degree:</strong> ${edu.degree}</p>
+                </div>
+            `).join('')}
+        </div>
+        ` : ''}
+
+        ${profile.skills && profile.skills.length > 0 ? `
+        <div class="section">
+            <h2>🛠️ Skills</h2>
             <div class="alias-grid">
-                ${aliases.map(alias => `
+                ${profile.skills.map(skill => `
                     <div class="alias-item">
-                        <strong>${alias.type.toUpperCase()}:</strong><br>
-                        ${alias.value}
-                        ${alias.platform ? `<br><small>Platform: ${alias.platform}</small>` : ''}
+                        ${skill}
                     </div>
                 `).join('')}
             </div>
         </div>
-
-        ${credentials.length > 0 ? `
-        <div class="section">
-            <h2>🔍 Detected Credentials</h2>
-            ${credentials.map(cred => `
-                <div class="credential-item credential-${cred.riskLevel.toLowerCase()}">
-                    <h3>${cred.description}</h3>
-                    <p><strong>Type:</strong> ${cred.type}</p>
-                    <p><strong>Severity:</strong> ${cred.severity}</p>
-                    <p><strong>Confidence:</strong> ${(cred.confidence * 100).toFixed(1)}%</p>
-                    <p><strong>Risk Level:</strong> ${cred.riskLevel}</p>
-                    <p><strong>Line:</strong> ${cred.lineNumber}</p>
-                    <div class="code-block">${this.escapeHtml(cred.context)}</div>
-                </div>
-            `).join('')}
-        </div>
-        ` : ''}
-
-        ${repositories.length > 0 ? `
-        <div class="section">
-            <h2>🐙 GitHub Repositories</h2>
-            ${repositories.map(repo => `
-                <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 10px 0;">
-                    <h3><a href="${repo.url}" target="_blank">${repo.name}</a></h3>
-                    <p>${repo.description || 'No description'}</p>
-                    <p><strong>Language:</strong> ${repo.language || 'Unknown'} | 
-                       <strong>Stars:</strong> ${repo.stars} | 
-                       <strong>Forks:</strong> ${repo.forks}</p>
-                    <p><strong>Updated:</strong> ${new Date(repo.updatedAt).toLocaleDateString()}</p>
-                </div>
-            `).join('')}
-        </div>
-        ` : ''}
-
-        ${exposures.length > 0 ? `
-        <div class="section">
-            <h2>🌐 Public Exposures</h2>
-            ${exposures.map(exposure => `
-                <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 10px 0;">
-                    <h3>${exposure.type.replace(/_/g, ' ').toUpperCase()}</h3>
-                    ${exposure.url ? `<p><a href="${exposure.url}" target="_blank">${exposure.url}</a></p>` : ''}
-                    ${exposure.description ? `<p>${exposure.description}</p>` : ''}
-                    ${exposure.riskLevel ? `<span class="risk-badge risk-${exposure.riskLevel.toLowerCase()}">${exposure.riskLevel}</span>` : ''}
-                </div>
-            `).join('')}
-        </div>
         ` : ''}
 
         <div class="footer">
-            <p>Generated by CredSweeper - Personal OSINT & Credential Exposure Scanner</p>
-            <p>This report is for educational and security research purposes only.</p>
+            <p>Generated by CredSweeper - LinkedIn Profile Data Extractor</p>
+            <p>This tool extracts publicly available LinkedIn profile information.</p>
         </div>
     </div>
 </body>
@@ -273,7 +252,7 @@ export class ReportGenerator {
   }
 
   createMarkdownReport(results) {
-    const { target, aliases, credentials, exposures, repositories, metadata } = results;
+    const { target, profile, metadata } = results;
     
     return `# 🕵️‍♂️ CredSweeper Report
 
@@ -286,49 +265,32 @@ export class ReportGenerator {
 - **Scan Date:** ${new Date(metadata.scanDate).toLocaleDateString()}
 
 ## Exposure Summary
-- **Total Credentials Found:** ${metadata.totalFindings}
-- **Risk Level:** ${metadata.riskLevel}
-- **Generated Aliases:** ${aliases.length}
-- **GitHub Repositories:** ${repositories.length}
-- **Public Exposures:** ${exposures.length}
+- **Data Points Extracted:** ${metadata.dataPoints}
+- **Extraction Status:** ${metadata.extractionSuccess ? 'Success' : 'Partial'}
+- **Work Experiences:** ${profile.experience ? profile.experience.length : 0}
+- **Education Entries:** ${profile.education ? profile.education.length : 0}
+- **Skills Listed:** ${profile.skills ? profile.skills.length : 0}
 
-## Generated Aliases
-${aliases.map(alias => `- **${alias.type.toUpperCase()}:** ${alias.value}${alias.platform ? ` (${alias.platform})` : ''}`).join('\n')}
+${profile.about ? `## About\n${profile.about}\n` : ''}
 
-${credentials.length > 0 ? `## Detected Credentials
-${credentials.map(cred => `
-### ${cred.description}
-- **Type:** ${cred.type}
-- **Severity:** ${cred.severity}
-- **Confidence:** ${(cred.confidence * 100).toFixed(1)}%
-- **Risk Level:** ${cred.riskLevel}
-- **Line:** ${cred.lineNumber}
-
-\`\`\`
-${cred.context}
-\`\`\`
+${profile.experience && profile.experience.length > 0 ? `## Work Experience
+${profile.experience.map(exp => `
+### ${exp.title}
+- **Company:** ${exp.company}
 `).join('\n')}` : ''}
 
-${repositories.length > 0 ? `## GitHub Repositories
-${repositories.map(repo => `
-### [${repo.name}](${repo.url})
-- **Description:** ${repo.description || 'No description'}
-- **Language:** ${repo.language || 'Unknown'}
-- **Stars:** ${repo.stars} | **Forks:** ${repo.forks}
-- **Updated:** ${new Date(repo.updatedAt).toLocaleDateString()}
+${profile.education && profile.education.length > 0 ? `## Education
+${profile.education.map(edu => `
+### ${edu.school}
+- **Degree:** ${edu.degree}
 `).join('\n')}` : ''}
 
-${exposures.length > 0 ? `## Public Exposures
-${exposures.map(exposure => `
-### ${exposure.type.replace(/_/g, ' ').toUpperCase()}
-${exposure.url ? `- **URL:** ${exposure.url}` : ''}
-${exposure.description ? `- **Description:** ${exposure.description}` : ''}
-${exposure.riskLevel ? `- **Risk Level:** ${exposure.riskLevel}` : ''}
-`).join('\n')}` : ''}
+${profile.skills && profile.skills.length > 0 ? `## Skills
+${profile.skills.map(skill => `- ${skill}`).join('\n')}` : ''}
 
 ---
-*Generated by CredSweeper - Personal OSINT & Credential Exposure Scanner*
-*This report is for educational and security research purposes only.*`;
+*Generated by CredSweeper - LinkedIn Profile Data Extractor*
+*This tool extracts publicly available LinkedIn profile information.*`;
   }
 
   escapeHtml(text) {

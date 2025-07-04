@@ -113,7 +113,7 @@ export class CLIInterface {
   }
 
   displayResults(results) {
-    const { target, aliases, credentials, repositories, exposures, metadata } = results;
+    const { target, profile, metadata } = results;
 
     console.log(chalk.blue('\n🕵️‍♂️  CREDSWEEPER RESULTS'));
     console.log(chalk.blue('═'.repeat(50)));
@@ -126,36 +126,34 @@ export class CLIInterface {
 
     // Summary Statistics
     console.log(chalk.cyan('\n📊 Exposure Summary:'));
-    console.log(`   Risk Level: ${this.colorizeRisk(metadata.riskLevel)}`);
-    console.log(`   Total Credentials: ${chalk.yellow(metadata.totalFindings)}`);
-    console.log(`   Generated Aliases: ${chalk.yellow(aliases.length)}`);
-    console.log(`   GitHub Repositories: ${chalk.yellow(repositories.length)}`);
-    console.log(`   Public Exposures: ${chalk.yellow(exposures.length)}`);
+    console.log(`   Extraction Status: ${metadata.extractionSuccess ? chalk.green('SUCCESS') : chalk.yellow('PARTIAL')}`);
+    console.log(`   Data Points: ${chalk.yellow(metadata.dataPoints)}`);
+    console.log(`   Work Experience: ${chalk.yellow(profile.experience ? profile.experience.length : 0)}`);
+    console.log(`   Education: ${chalk.yellow(profile.education ? profile.education.length : 0)}`);
+    console.log(`   Skills: ${chalk.yellow(profile.skills ? profile.skills.length : 0)}`);
 
-    // High-risk credentials
-    const highRiskCreds = credentials.filter(c => c.riskLevel === 'CRITICAL' || c.riskLevel === 'HIGH');
-    if (highRiskCreds.length > 0) {
-      console.log(chalk.red('\n🚨 High-Risk Credentials Found:'));
-      highRiskCreds.slice(0, 5).forEach(cred => {
-        console.log(`   ${this.colorizeRisk(cred.riskLevel)} ${cred.description}`);
-        console.log(`      Confidence: ${(cred.confidence * 100).toFixed(1)}%`);
+    // Profile details
+    if (profile.about) {
+      console.log(chalk.cyan('\n📝 About:'));
+      console.log(`   ${profile.about.substring(0, 200)}${profile.about.length > 200 ? '...' : ''}`);
+    }
+
+    // Experience highlights
+    if (profile.experience && profile.experience.length > 0) {
+      console.log(chalk.cyan('\n💼 Recent Experience:'));
+      profile.experience.slice(0, 3).forEach(exp => {
+        console.log(`   ${exp.title} at ${exp.company}`);
       });
       
-      if (highRiskCreds.length > 5) {
-        console.log(`   ... and ${highRiskCreds.length - 5} more (see full report)`);
+      if (profile.experience.length > 3) {
+        console.log(`   ... and ${profile.experience.length - 3} more positions`);
       }
     }
 
-    // Repository highlights
-    if (repositories.length > 0) {
-      console.log(chalk.cyan('\n🐙 GitHub Repositories:'));
-      repositories.slice(0, 3).forEach(repo => {
-        console.log(`   ${repo.name} (${repo.language || 'Unknown'}) - ${repo.stars} stars`);
-      });
-      
-      if (repositories.length > 3) {
-        console.log(`   ... and ${repositories.length - 3} more repositories`);
-      }
+    // Skills highlights
+    if (profile.skills && profile.skills.length > 0) {
+      console.log(chalk.cyan('\n🛠️ Top Skills:'));
+      console.log(`   ${profile.skills.slice(0, 10).join(', ')}${profile.skills.length > 10 ? '...' : ''}`);
     }
   }
 
