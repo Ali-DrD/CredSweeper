@@ -9,10 +9,10 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "dev": "vite",
+    "dev": "node src/index.js --web",
     "build": "vite build",
     "preview": "vite preview",
-    "web": "node src/index.js --web",
+    "web": "npm run dev",
     "cli": "node src/cli.js",
     "scan": "npm run cli scan",
     "demo": "node src/cli.js demo",
