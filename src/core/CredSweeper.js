@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { LinkedInExtractor } from './extractors/LinkedInExtractor.js';
 import { UsernameGenerator } from './generators/UsernameGenerator.js';
 import { GitHubRecon } from './recon/GitHubRecon.js';

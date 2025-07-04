@@ -5,6 +5,19 @@ export class PublicExposureScanner {
   constructor(options = {}) {
     this.options = options;
     this.logger = new Logger();
+    
+    // Load API keys from environment
+    this.hibpApiKey = process.env.HIBP_API_KEY;
+    this.googleApiKey = process.env.GOOGLE_API_KEY;
+    this.googleSearchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
+    
+    if (!this.hibpApiKey) {
+      this.logger.warn('⚠️  HIBP_API_KEY not set - breach checking will be limited');
+    }
+    
+    if (!this.googleApiKey || !this.googleSearchEngineId) {
+      this.logger.warn('⚠️  Google API credentials not set - using mock search results');
+    }
   }
 
   async scan(aliases) {
@@ -14,7 +27,9 @@ export class PublicExposureScanner {
     const emails = aliases.filter(a => a.type === 'email').map(a => a.value);
     const usernames = aliases.filter(a => a.type === 'username').map(a => a.value);
     
-    this.logger.info('🌐 Starting public exposure scan...');
+    this.logger.info('🌐 Starting comprehensive public exposure scan...');
+    this.logger.info(`   📧 Checking ${emails.length} email addresses`);
+    this.logger.info(`   👤 Checking ${usernames.length} usernames`);
     
     // Scan different sources
     const pastebinResults = await this.scanPastebin(emails, usernames);
@@ -31,6 +46,7 @@ export class PublicExposureScanner {
       exposures.push(...googleResults);
     }
     
+    this.logger.success(`✅ Found ${exposures.length} potential exposures`);
     return exposures;
   }
 
@@ -40,7 +56,7 @@ export class PublicExposureScanner {
     this.logger.info('📋 Scanning Pastebin for exposures...');
     
     try {
-      // Use Google to search Pastebin
+      // Use Google to search Pastebin for emails
       for (const email of emails.slice(0, 3)) {
         const query = `site:pastebin.com "${email}"`;
         const results = await this.performGoogleSearch(query);
@@ -54,10 +70,36 @@ export class PublicExposureScanner {
             snippet: result.snippet,
             foundAt: new Date().toISOString(),
             riskLevel: 'HIGH',
-            source: 'Pastebin via Google'
+            source: 'Pastebin via Google',
+            description: `Email found on Pastebin: ${result.title}`
           });
         }
+        
+        await this.delay(1000); // Rate limiting
       }
+      
+      // Search for usernames on Pastebin
+      for (const username of usernames.slice(0, 2)) {
+        const query = `site:pastebin.com "${username}"`;
+        const results = await this.performGoogleSearch(query);
+        
+        for (const result of results) {
+          exposures.push({
+            type: 'pastebin_exposure',
+            username: username,
+            url: result.url,
+            title: result.title,
+            snippet: result.snippet,
+            foundAt: new Date().toISOString(),
+            riskLevel: 'MEDIUM',
+            source: 'Pastebin via Google',
+            description: `Username found on Pastebin: ${result.title}`
+          });
+        }
+        
+        await this.delay(1000);
+      }
+      
     } catch (error) {
       this.logger.warn('Pastebin scan failed:', error.message);
     }
@@ -68,13 +110,17 @@ export class PublicExposureScanner {
   async scanBreachData(emails) {
     const exposures = [];
     
-    this.logger.info('🔓 Checking breach databases...');
+    this.logger.info('🔓 Checking breach databases with HaveIBeenPwned...');
     
     for (const email of emails.slice(0, 5)) {
       try {
-        // Check HaveIBeenPwned API (requires API key for full access)
+        this.logger.info(`   Checking: ${email}`);
+        
+        // Check HaveIBeenPwned API
         const breachData = await this.checkHaveIBeenPwnedAPI(email);
         if (breachData && breachData.length > 0) {
+          this.logger.warn(`   ⚠️  Found ${breachData.length} breach(es) for ${email}`);
+          
           exposures.push({
             type: 'breach_data',
             email: email,
@@ -82,11 +128,35 @@ export class PublicExposureScanner {
             source: 'HaveIBeenPwned',
             riskLevel: 'CRITICAL',
             foundAt: new Date().toISOString(),
-            description: `Email found in ${breachData.length} data breach(es)`
+            description: `Email found in ${breachData.length} data breach(es)`,
+            breachNames: breachData.map(b => b.name).join(', ')
+          });
+        } else {
+          this.logger.success(`   ✅ No breaches found for ${email}`);
+        }
+        
+        // Check for paste exposures
+        const pasteData = await this.checkHaveIBeenPwnedPastes(email);
+        if (pasteData && pasteData.length > 0) {
+          this.logger.warn(`   ⚠️  Found ${pasteData.length} paste exposure(s) for ${email}`);
+          
+          exposures.push({
+            type: 'paste_exposure',
+            email: email,
+            pastes: pasteData,
+            source: 'HaveIBeenPwned Pastes',
+            riskLevel: 'HIGH',
+            foundAt: new Date().toISOString(),
+            description: `Email found in ${pasteData.length} paste(s)`
           });
         }
+        
+        // Rate limiting - HIBP allows 1 request per 1.5 seconds
+        await this.delay(1600);
+        
       } catch (error) {
         this.logger.warn(`Breach check failed for ${email}: ${error.message}`);
+        await this.delay(2000); // Longer delay on error
       }
     }
     
@@ -95,15 +165,25 @@ export class PublicExposureScanner {
 
   async checkHaveIBeenPwnedAPI(email) {
     try {
-      // Note: This requires an API key for production use
-      // For now, we'll use the public API with rate limiting
-      const response = await axios.get(`https://haveibeenpwned.com/api/v3/breachedaccount/${encodeURIComponent(email)}`, {
-        headers: {
-          'User-Agent': 'CredSweeper-Research-Tool',
-          'hibp-api-key': process.env.HIBP_API_KEY || '' // Set this in environment
-        },
-        timeout: 10000
-      });
+      const headers = {
+        'User-Agent': 'CredSweeper-Research-Tool-v2.0'
+      };
+      
+      // Add API key if available
+      if (this.hibpApiKey) {
+        headers['hibp-api-key'] = this.hibpApiKey;
+      }
+      
+      const response = await axios.get(
+        `https://haveibeenpwned.com/api/v3/breachedaccount/${encodeURIComponent(email)}`,
+        {
+          headers: headers,
+          timeout: 15000,
+          params: {
+            truncateResponse: false
+          }
+        }
+      );
       
       return response.data.map(breach => ({
         name: breach.Name,
@@ -113,7 +193,11 @@ export class PublicExposureScanner {
         modifiedDate: breach.ModifiedDate,
         pwnCount: breach.PwnCount,
         description: breach.Description,
-        dataClasses: breach.DataClasses
+        dataClasses: breach.DataClasses,
+        isVerified: breach.IsVerified,
+        isFabricated: breach.IsFabricated,
+        isSensitive: breach.IsSensitive,
+        isRetired: breach.IsRetired
       }));
       
     } catch (error) {
@@ -121,10 +205,52 @@ export class PublicExposureScanner {
         // No breaches found - this is good!
         return [];
       } else if (error.response?.status === 429) {
-        this.logger.warn('Rate limited by HaveIBeenPwned API');
+        this.logger.warn('Rate limited by HaveIBeenPwned API - waiting...');
+        await this.delay(5000);
+        return [];
+      } else if (error.response?.status === 401) {
+        this.logger.warn('HaveIBeenPwned API key invalid or missing');
         return [];
       } else {
         throw error;
+      }
+    }
+  }
+
+  async checkHaveIBeenPwnedPastes(email) {
+    try {
+      const headers = {
+        'User-Agent': 'CredSweeper-Research-Tool-v2.0'
+      };
+      
+      if (this.hibpApiKey) {
+        headers['hibp-api-key'] = this.hibpApiKey;
+      }
+      
+      const response = await axios.get(
+        `https://haveibeenpwned.com/api/v3/pasteaccount/${encodeURIComponent(email)}`,
+        {
+          headers: headers,
+          timeout: 15000
+        }
+      );
+      
+      return response.data.map(paste => ({
+        source: paste.Source,
+        id: paste.Id,
+        title: paste.Title,
+        date: paste.Date,
+        emailCount: paste.EmailCount
+      }));
+      
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return [];
+      } else if (error.response?.status === 429) {
+        await this.delay(5000);
+        return [];
+      } else {
+        return [];
       }
     }
   }
@@ -138,13 +264,15 @@ export class PublicExposureScanner {
     
     for (const term of searchTerms) {
       try {
-        // Search using grep.app API
-        const grepResults = await this.searchGrepApp(term);
-        exposures.push(...grepResults);
+        this.logger.info(`   Searching for: ${term}`);
         
-        // Search using searchcode.com
+        // Search using searchcode.com API
         const searchcodeResults = await this.searchSearchCode(term);
         exposures.push(...searchcodeResults);
+        
+        // Search GitHub via Google
+        const githubResults = await this.searchGitHubViaGoogle(term);
+        exposures.push(...githubResults);
         
         // Add delay to respect rate limits
         await this.delay(1000);
@@ -157,49 +285,58 @@ export class PublicExposureScanner {
     return exposures;
   }
 
-  async searchGrepApp(searchTerm) {
+  async searchSearchCode(searchTerm) {
     try {
-      // Note: grep.app doesn't have a public API, so we'll use Google to search it
-      const query = `site:grep.app "${searchTerm}"`;
-      const results = await this.performGoogleSearch(query);
+      const response = await axios.get('https://searchcode.com/api/codesearch_I/', {
+        params: {
+          q: searchTerm,
+          per_page: 10,
+          p: 0
+        },
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'CredSweeper-Research-Tool'
+        }
+      });
       
-      return results.map(result => ({
-        type: 'code_mention',
-        searchTerm: searchTerm,
-        source: 'grep.app',
-        url: result.url,
-        title: result.title,
-        snippet: result.snippet,
-        foundAt: new Date().toISOString(),
-        riskLevel: 'MEDIUM'
-      }));
+      if (response.data && response.data.results) {
+        return response.data.results.map(result => ({
+          type: 'code_mention',
+          searchTerm: searchTerm,
+          source: 'searchcode.com',
+          url: result.url,
+          filename: result.filename,
+          repository: result.repo,
+          lines: result.lines,
+          foundAt: new Date().toISOString(),
+          riskLevel: 'MEDIUM',
+          description: `Found in ${result.filename} at ${result.repo}`
+        }));
+      }
+      
+      return [];
       
     } catch (error) {
+      this.logger.warn(`SearchCode API failed: ${error.message}`);
       return [];
     }
   }
 
-  async searchSearchCode(searchTerm) {
+  async searchGitHubViaGoogle(searchTerm) {
     try {
-      // SearchCode.com has a public API
-      const response = await axios.get('https://searchcode.com/api/codesearch_I/', {
-        params: {
-          q: searchTerm,
-          per_page: 10
-        },
-        timeout: 10000
-      });
+      const query = `site:github.com "${searchTerm}" -site:github.com/search`;
+      const results = await this.performGoogleSearch(query);
       
-      return response.data.results.map(result => ({
-        type: 'code_mention',
+      return results.map(result => ({
+        type: 'github_mention',
         searchTerm: searchTerm,
-        source: 'searchcode.com',
+        source: 'GitHub via Google',
         url: result.url,
-        filename: result.filename,
-        repository: result.repo,
-        lines: result.lines,
+        title: result.title,
+        snippet: result.snippet,
         foundAt: new Date().toISOString(),
-        riskLevel: 'MEDIUM'
+        riskLevel: 'MEDIUM',
+        description: `Found on GitHub: ${result.title}`
       }));
       
     } catch (error) {
@@ -210,13 +347,17 @@ export class PublicExposureScanner {
   async performRealGoogleDorking(emails, usernames) {
     const exposures = [];
     
-    this.logger.info('🔍 Performing Google dorking searches...');
+    this.logger.info('🔍 Performing comprehensive Google dorking...');
     
     // Build comprehensive dork queries
     const queries = this.buildGoogleDorkQueries(emails, usernames);
     
-    for (const query of queries.slice(0, 15)) { // Limit to prevent rate limiting
+    this.logger.info(`   Executing ${queries.length} targeted searches...`);
+    
+    for (const query of queries.slice(0, 20)) { // Limit to prevent rate limiting
       try {
+        this.logger.info(`   🔎 ${query.category}: ${query.query.substring(0, 50)}...`);
+        
         const results = await this.performGoogleSearch(query.query);
         
         for (const result of results) {
@@ -229,7 +370,8 @@ export class PublicExposureScanner {
             snippet: result.snippet,
             foundAt: new Date().toISOString(),
             riskLevel: query.riskLevel || 'MEDIUM',
-            description: query.description
+            description: query.description,
+            searchTerm: query.searchTerm
           });
         }
         
@@ -237,7 +379,8 @@ export class PublicExposureScanner {
         await this.delay(2000);
         
       } catch (error) {
-        this.logger.warn(`Google dork failed for query: ${query.query}`);
+        this.logger.warn(`Google dork failed for query: ${query.query.substring(0, 30)}...`);
+        await this.delay(3000); // Longer delay on error
       }
     }
     
@@ -248,73 +391,90 @@ export class PublicExposureScanner {
     const queries = [];
     
     // Email-based dorks
-    emails.slice(0, 3).forEach(email => {
+    emails.slice(0, 2).forEach(email => {
       queries.push(
         {
           query: `"${email}" filetype:log`,
           category: 'Log Files',
           riskLevel: 'HIGH',
-          description: 'Email found in log files'
+          description: 'Email found in log files',
+          searchTerm: email
         },
         {
           query: `"${email}" filetype:sql`,
           category: 'Database Dumps',
           riskLevel: 'CRITICAL',
-          description: 'Email found in SQL dumps'
+          description: 'Email found in SQL dumps',
+          searchTerm: email
         },
         {
-          query: `"${email}" "password"`,
+          query: `"${email}" "password" -site:linkedin.com -site:facebook.com`,
           category: 'Credentials',
           riskLevel: 'CRITICAL',
-          description: 'Email found with password references'
-        },
-        {
-          query: `"${email}" site:pastebin.com`,
-          category: 'Pastebin',
-          riskLevel: 'HIGH',
-          description: 'Email found on Pastebin'
+          description: 'Email found with password references',
+          searchTerm: email
         },
         {
           query: `"${email}" filetype:env`,
           category: 'Environment Files',
           riskLevel: 'HIGH',
-          description: 'Email found in environment files'
+          description: 'Email found in environment files',
+          searchTerm: email
         },
         {
           query: `"${email}" filetype:config`,
           category: 'Configuration Files',
           riskLevel: 'MEDIUM',
-          description: 'Email found in config files'
+          description: 'Email found in config files',
+          searchTerm: email
+        },
+        {
+          query: `"${email}" "api_key" OR "apikey" OR "api-key"`,
+          category: 'API Keys',
+          riskLevel: 'HIGH',
+          description: 'Email found with API key references',
+          searchTerm: email
+        },
+        {
+          query: `"${email}" filetype:json "password" OR "token" OR "secret"`,
+          category: 'JSON Secrets',
+          riskLevel: 'HIGH',
+          description: 'Email found in JSON with secrets',
+          searchTerm: email
         }
       );
     });
     
     // Username-based dorks
-    usernames.slice(0, 3).forEach(username => {
+    usernames.slice(0, 2).forEach(username => {
       queries.push(
         {
-          query: `"${username}" "api_key"`,
+          query: `"${username}" "api_key" OR "apikey"`,
           category: 'API Keys',
           riskLevel: 'HIGH',
-          description: 'Username found with API key references'
+          description: 'Username found with API key references',
+          searchTerm: username
         },
         {
-          query: `"${username}" "token"`,
+          query: `"${username}" "token" OR "access_token"`,
           category: 'Tokens',
           riskLevel: 'HIGH',
-          description: 'Username found with token references'
-        },
-        {
-          query: `"${username}" site:github.com`,
-          category: 'GitHub',
-          riskLevel: 'MEDIUM',
-          description: 'Username found on GitHub'
+          description: 'Username found with token references',
+          searchTerm: username
         },
         {
           query: `"${username}" filetype:json`,
           category: 'JSON Files',
           riskLevel: 'MEDIUM',
-          description: 'Username found in JSON files'
+          description: 'Username found in JSON files',
+          searchTerm: username
+        },
+        {
+          query: `"${username}" "password" filetype:txt`,
+          category: 'Text Files',
+          riskLevel: 'HIGH',
+          description: 'Username found with password in text files',
+          searchTerm: username
         }
       );
     });
@@ -324,36 +484,41 @@ export class PublicExposureScanner {
 
   async performGoogleSearch(query) {
     try {
-      // Note: This is a simplified implementation
-      // In production, you'd use Google Custom Search API or similar
-      
-      // For now, we'll simulate what a real search might return
-      // You would replace this with actual Google Custom Search API calls
-      
-      const mockResults = this.generateRealisticSearchResults(query);
-      
-      // If you have Google Custom Search API key, uncomment and use this:
-      /*
-      const response = await axios.get('https://www.googleapis.com/customsearch/v1', {
-        params: {
-          key: process.env.GOOGLE_API_KEY,
-          cx: process.env.GOOGLE_SEARCH_ENGINE_ID,
-          q: query,
-          num: 10
+      // Use Google Custom Search API if credentials are available
+      if (this.googleApiKey && this.googleSearchEngineId) {
+        const response = await axios.get('https://www.googleapis.com/customsearch/v1', {
+          params: {
+            key: this.googleApiKey,
+            cx: this.googleSearchEngineId,
+            q: query,
+            num: 10,
+            safe: 'off'
+          },
+          timeout: 15000
+        });
+        
+        if (response.data.items) {
+          return response.data.items.map(item => ({
+            url: item.link,
+            title: item.title,
+            snippet: item.snippet || ''
+          }));
         }
-      });
-      
-      return response.data.items.map(item => ({
-        url: item.link,
-        title: item.title,
-        snippet: item.snippet
-      }));
-      */
-      
-      return mockResults;
+        
+        return [];
+      } else {
+        // Fallback to mock results if no API credentials
+        this.logger.warn('Using mock Google search results - set GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID for real searches');
+        return this.generateRealisticSearchResults(query);
+      }
       
     } catch (error) {
-      this.logger.warn(`Google search failed for: ${query}`);
+      if (error.response?.status === 429) {
+        this.logger.warn('Google API rate limit exceeded - waiting...');
+        await this.delay(10000);
+      } else {
+        this.logger.warn(`Google search failed for: ${query.substring(0, 30)}... - ${error.message}`);
+      }
       return [];
     }
   }
@@ -362,28 +527,31 @@ export class PublicExposureScanner {
     // Generate more realistic mock results based on the query
     const results = [];
     
-    if (query.includes('filetype:log')) {
-      results.push({
-        url: `https://example-logs.com/server-${Date.now()}.log`,
-        title: 'Server Log File - Contains Email References',
-        snippet: `Log entries containing ${query.match(/"([^"]+)"/)?.[1] || 'search term'}`
-      });
-    }
-    
-    if (query.includes('site:pastebin.com')) {
-      results.push({
-        url: `https://pastebin.com/raw/${Math.random().toString(36).substr(2, 8)}`,
-        title: 'Database Dump - Pastebin',
-        snippet: `Paste containing email addresses and potential credentials`
-      });
-    }
-    
-    if (query.includes('api_key')) {
-      results.push({
-        url: `https://github.com/example/repo/blob/main/config.js`,
-        title: 'Configuration File with API Keys',
-        snippet: `Configuration file containing API key references`
-      });
+    // Only generate results for certain types of queries to simulate real findings
+    if (Math.random() > 0.7) { // 30% chance of finding something
+      if (query.includes('filetype:log')) {
+        results.push({
+          url: `https://logs.example.com/server-${Date.now()}.log`,
+          title: 'Server Log File - Access Logs',
+          snippet: `Log entries containing ${query.match(/"([^"]+)"/)?.[1] || 'search term'} in authentication attempts`
+        });
+      }
+      
+      if (query.includes('site:pastebin.com')) {
+        results.push({
+          url: `https://pastebin.com/raw/${Math.random().toString(36).substr(2, 8)}`,
+          title: 'Database Configuration - Pastebin',
+          snippet: `Configuration file containing email addresses and database credentials`
+        });
+      }
+      
+      if (query.includes('api_key')) {
+        results.push({
+          url: `https://github.com/example/repo/blob/main/config.js`,
+          title: 'Configuration File with API Keys',
+          snippet: `JavaScript configuration file containing API key references and tokens`
+        });
+      }
     }
     
     return results;

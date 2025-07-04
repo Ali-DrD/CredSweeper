@@ -3,7 +3,7 @@ import chalk from 'chalk';
 export class Logger {
   constructor(options = {}) {
     this.options = {
-      level: 'info',
+      level: process.env.LOG_LEVEL || 'info',
       timestamp: true,
       ...options
     };
