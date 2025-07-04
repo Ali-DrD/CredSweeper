@@ -95,7 +95,6 @@ Thumbs.db
 
 # Reports
 *.html
-*.json
 demo-report.*
 report.*
 

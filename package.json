@@ -1,0 +1,69 @@
+{
+  "name": "credsweeper",
+  "version": "2.0.0",
+  "description": "Personal OSINT & Credential Exposure Scanner - Educational Tool",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "credsweeper": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "web": "node src/index.js --web",
+    "scan": "node src/cli.js scan",
+    "demo": "node src/cli.js demo",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write src/",
+    "install-deps": "npm install"
+  },
+  "keywords": [
+    "osint",
+    "security",
+    "credentials",
+    "scanner",
+    "linkedin",
+    "github",
+    "reconnaissance",
+    "cybersecurity",
+    "educational"
+  ],
+  "author": "Security Research Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "express": "^4.18.2",
+    "fs-extra": "^11.2.0",
+    "ora": "^7.0.1",
+    "playwright": "^1.40.1",
+    "validator": "^13.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-node": "^11.1.0",
+    "prettier": "^3.1.1",
+    "vite": "^5.0.8",
+    "vitest": "^1.0.4",
+    "@vitest/coverage-v8": "^1.0.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/credsweeper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/credsweeper/issues"
+  },
+  "homepage": "https://github.com/your-username/credsweeper#readme"
+}
